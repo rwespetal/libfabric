@@ -94,6 +94,10 @@ int rxr_cq_handle_rx_error(struct rxr_ep *ep, struct rxr_rx_entry *rx_entry,
 	err_entry.err = FI_EIO;
 	err_entry.prov_errno = (int)prov_errno;
 
+	if ((rx_entry->rxr_flags & RXR_ENTRY_QUEUED) ||
+	    (rx_entry->rxr_flags & RXR_ENTRY_QUEUED_RNR))
+		dlist_remove(&rx_entry->queued_entry);
+
 	switch (rx_entry->state) {
 	case RXR_RX_INIT:
 	case RXR_RX_UNEXP:
@@ -105,11 +109,6 @@ int rxr_cq_handle_rx_error(struct rxr_ep *ep, struct rxr_rx_entry *rx_entry,
 #if ENABLE_DEBUG
 		dlist_remove(&rx_entry->rx_pending_entry);
 #endif
-		break;
-	case RXR_RX_QUEUED_CTRL:
-	case RXR_RX_QUEUED_CTS_RNR:
-	case RXR_RX_QUEUED_EOR:
-		dlist_remove(&rx_entry->queued_entry);
 		break;
 	default:
 		FI_WARN(&rxr_prov, FI_LOG_CQ, "rx_entry unknown state %d\n",
@@ -182,17 +181,15 @@ int rxr_cq_handle_tx_error(struct rxr_ep *ep, struct rxr_tx_entry *tx_entry,
 	err_entry.err = FI_EIO;
 	err_entry.prov_errno = (int)prov_errno;
 
+	if ((tx_entry->rxr_flags & RXR_ENTRY_QUEUED) ||
+	    (tx_entry->rxr_flags & RXR_ENTRY_QUEUED_RNR))
+		dlist_remove(&tx_entry->queued_entry);
+
 	switch (tx_entry->state) {
 	case RXR_TX_REQ:
 		break;
 	case RXR_TX_SEND:
 		dlist_remove(&tx_entry->entry);
-		break;
-	case RXR_TX_QUEUED_CTRL:
-	case RXR_TX_QUEUED_SHM_RMA:
-	case RXR_TX_QUEUED_REQ_RNR:
-	case RXR_TX_QUEUED_DATA_RNR:
-		dlist_remove(&tx_entry->queued_entry);
 		break;
 	case RXR_TX_WAIT_READ_FINISH:
 		break;
@@ -387,6 +384,10 @@ int rxr_cq_handle_cq_error(struct rxr_ep *ep, ssize_t err)
 	 * If x_entry is set this rx or tx entry error is for a sent
 	 * packet. Decrement the tx_pending counter and fall through to
 	 * the rx or tx entry handlers.
+	 *
+	 * Store the packet and queue the entry if we get an RNR error from the
+	 * device and we are handling resource management. The list for RNR
+	 * shares the same list with entries queued due to resource exhaustion.
 	 */
 	if (!peer->is_local)
 		rxr_ep_dec_tx_pending(ep, peer, 1);
@@ -401,16 +402,13 @@ int rxr_cq_handle_cq_error(struct rxr_ep *ep, ssize_t err)
 		}
 
 		rxr_cq_queue_pkt(ep, &tx_entry->queued_pkts, pkt_entry);
-		if (tx_entry->state == RXR_TX_SEND) {
-			dlist_remove(&tx_entry->entry);
-			tx_entry->state = RXR_TX_QUEUED_DATA_RNR;
+
+		if (!((tx_entry->rxr_flags & RXR_ENTRY_QUEUED) ||
+		      (tx_entry->rxr_flags & RXR_ENTRY_QUEUED_RNR)))
 			dlist_insert_tail(&tx_entry->queued_entry,
 					  &ep->tx_entry_queued_list);
-		} else if (tx_entry->state == RXR_TX_REQ) {
-			tx_entry->state = RXR_TX_QUEUED_REQ_RNR;
-			dlist_insert_tail(&tx_entry->queued_entry,
-					  &ep->tx_entry_queued_list);
-		}
+
+		tx_entry->rxr_flags |= RXR_ENTRY_QUEUED_RNR;
 		return 0;
 	} else if (RXR_GET_X_ENTRY_TYPE(pkt_entry) == RXR_RX_ENTRY) {
 		rx_entry = (struct rxr_rx_entry *)pkt_entry->x_entry;
@@ -421,12 +419,15 @@ int rxr_cq_handle_cq_error(struct rxr_ep *ep, ssize_t err)
 			rxr_pkt_entry_release_tx(ep, pkt_entry);
 			return ret;
 		}
+
 		rxr_cq_queue_pkt(ep, &rx_entry->queued_pkts, pkt_entry);
-		if (rx_entry->state == RXR_RX_RECV) {
-			rx_entry->state = RXR_RX_QUEUED_CTS_RNR;
+
+		if (!((rx_entry->rxr_flags & RXR_ENTRY_QUEUED) ||
+		      (rx_entry->rxr_flags & RXR_ENTRY_QUEUED_RNR)))
 			dlist_insert_tail(&rx_entry->queued_entry,
-					  &ep->rx_entry_queued_list);
-		}
+		                          &ep->rx_entry_queued_list);
+
+		rx_entry->rxr_flags |= RXR_ENTRY_QUEUED_RNR;
 		return 0;
 	} else if (RXR_GET_X_ENTRY_TYPE(pkt_entry) == RXR_READ_ENTRY) {
 		read_entry = (struct rxr_read_entry *)pkt_entry->x_entry;

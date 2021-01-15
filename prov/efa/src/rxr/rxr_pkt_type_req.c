@@ -722,7 +722,6 @@ void rxr_pkt_rtm_init_rx_entry(struct rxr_pkt_entry *pkt_entry,
 
 	base_hdr = rxr_get_base_hdr(pkt_entry->pkt);
 	if (base_hdr->flags & RXR_REQ_OPT_CQ_DATA_HDR) {
-		rx_entry->rxr_flags |= RXR_REMOTE_CQ_DATA;
 		rx_entry->cq_entry.flags |= FI_REMOTE_CQ_DATA;
 		rx_entry->cq_entry.data = rxr_pkt_req_cq_data(pkt_entry);
 	}
@@ -1507,7 +1506,6 @@ struct rxr_rx_entry *rxr_pkt_alloc_rtw_rx_entry(struct rxr_ep *ep,
 
 	base_hdr = rxr_get_base_hdr(pkt_entry->pkt);
 	if (base_hdr->flags & RXR_REQ_OPT_CQ_DATA_HDR) {
-		rx_entry->rxr_flags |= RXR_REMOTE_CQ_DATA;
 		rx_entry->cq_entry.flags |= FI_REMOTE_CQ_DATA;
 		rx_entry->cq_entry.data = rxr_pkt_req_cq_data(pkt_entry);
 	}

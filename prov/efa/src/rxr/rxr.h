@@ -137,11 +137,14 @@ static inline void rxr_poison_mem_region(uint32_t *ptr, size_t size)
 #define RXR_MAX_NAME_LENGTH	(32)
 
 /*
- * RxR specific flags that are sent over the wire.
+ * rxr_flags definitions for local rxr_tx_entry/rxr_rx_entry state.
+ *
+ * These are not sent over the wire directly and are used to track various
+ * states as messages are progressed.
  */
-#define RXR_TAGGED		BIT_ULL(0)
-#define RXR_REMOTE_CQ_DATA	BIT_ULL(1)
-#define RXR_REMOTE_SRC_ADDR	BIT_ULL(2)
+#define RXR_ENTRY_QUEUED	BIT_ULL(0) /* queued due to resource exhaustion */
+#define RXR_ENTRY_QUEUED_RNR	BIT_ULL(1) /* packets are queued due to rnr error */
+/* BIT_ULL(2) is not used */
 
 /*
  * TODO: In future we will send RECV_CANCEL signal to sender,
@@ -174,6 +177,7 @@ static inline void rxr_poison_mem_region(uint32_t *ptr, size_t size)
  * long message protocol is used
  */
 #define RXR_LONGCTS_PROTOCOL BIT_ULL(8)
+/* end of rxr_flags */
 
 /*
  * OFI flags
@@ -253,10 +257,6 @@ enum rxr_tx_comm_type {
 	RXR_TX_FREE = 0,	/* tx_entry free state */
 	RXR_TX_REQ,		/* tx_entry sending REQ packet */
 	RXR_TX_SEND,		/* tx_entry sending data in progress */
-	RXR_TX_QUEUED_SHM_RMA,	/* tx_entry was unable to send RMA operations over shm provider */
-	RXR_TX_QUEUED_CTRL,	/* tx_entry was unable to send ctrl packet */
-	RXR_TX_QUEUED_REQ_RNR,  /* tx_entry RNR sending REQ packet */
-	RXR_TX_QUEUED_DATA_RNR,	/* tx_entry RNR sending data packets */
 	RXR_TX_WAIT_READ_FINISH, /* tx_entry (on initiating EP) wait
 				  * for rx_entry to finish receiving
 				  * (FI_READ only)
@@ -269,9 +269,6 @@ enum rxr_rx_comm_type {
 	RXR_RX_UNEXP,		/* rx_entry unexp msg waiting for post recv */
 	RXR_RX_MATCHED,		/* rx_entry matched with RTM */
 	RXR_RX_RECV,		/* rx_entry large msg recv data pkts */
-	RXR_RX_QUEUED_CTRL,	/* rx_entry was unable to send ctrl packet */
-	RXR_RX_QUEUED_EOR,	/* rx_entry was unable to send EOR over shm */
-	RXR_RX_QUEUED_CTS_RNR,	/* rx_entry RNR sending CTS */
 	RXR_RX_WAIT_READ_FINISH, /* rx_entry wait for send to finish, FI_READ */
 };
 

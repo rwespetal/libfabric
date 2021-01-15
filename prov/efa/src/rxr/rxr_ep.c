@@ -1623,7 +1623,7 @@ void rxr_ep_progress_internal(struct rxr_ep *ep)
 		if (peer->flags & RXR_PEER_IN_BACKOFF)
 			continue;
 
-		if (rx_entry->state == RXR_RX_QUEUED_CTRL) {
+		if (rx_entry->rxr_flags & RXR_ENTRY_QUEUED) {
 			/*
 			 * We should only have one packet pending at a time for
 			 * rx_entry. Either the send failed due to RNR or the
@@ -1642,8 +1642,8 @@ void rxr_ep_progress_internal(struct rxr_ep *ep)
 		if (OFI_UNLIKELY(ret))
 			goto rx_err;
 
+		rx_entry->rxr_flags &= ~(RXR_ENTRY_QUEUED | RXR_ENTRY_QUEUED_RNR);
 		dlist_remove(&rx_entry->queued_entry);
-		rx_entry->state = RXR_RX_RECV;
 	}
 
 	dlist_foreach_container_safe(&ep->tx_entry_queued_list,
@@ -1666,7 +1666,9 @@ void rxr_ep_progress_internal(struct rxr_ep *ep)
 		if (OFI_UNLIKELY(ret))
 			goto tx_err;
 
-		if (tx_entry->state == RXR_TX_QUEUED_CTRL) {
+		tx_entry->rxr_flags &= ~RXR_ENTRY_QUEUED_RNR;
+
+		if (tx_entry->rxr_flags & RXR_ENTRY_QUEUED) {
 			ret = rxr_pkt_post_ctrl(ep, RXR_TX_ENTRY, tx_entry,
 						tx_entry->queued_ctrl.type,
 						tx_entry->queued_ctrl.inject);
@@ -1674,18 +1676,10 @@ void rxr_ep_progress_internal(struct rxr_ep *ep)
 				break;
 			if (OFI_UNLIKELY(ret))
 				goto tx_err;
+			tx_entry->rxr_flags &= ~RXR_ENTRY_QUEUED;
 		}
 
 		dlist_remove(&tx_entry->queued_entry);
-
-		if (tx_entry->state == RXR_TX_QUEUED_REQ_RNR ||
-		    tx_entry->state == RXR_TX_QUEUED_CTRL) {
-			tx_entry->state = RXR_TX_REQ;
-		} else if (tx_entry->state == RXR_TX_QUEUED_DATA_RNR) {
-			tx_entry->state = RXR_TX_SEND;
-			dlist_insert_tail(&tx_entry->entry,
-					  &ep->tx_pending_list);
-		}
 	}
 
 	/*
@@ -1693,8 +1687,10 @@ void rxr_ep_progress_internal(struct rxr_ep *ep)
 	 */
 	dlist_foreach_container(&ep->tx_pending_list, struct rxr_tx_entry,
 				tx_entry, entry) {
-		peer = rxr_ep_get_peer(ep, tx_entry->addr);
+		if (tx_entry->rxr_flags & RXR_ENTRY_QUEUED_RNR)
+			continue;
 
+		peer = rxr_ep_get_peer(ep, tx_entry->addr);
 		if (peer->flags & RXR_PEER_IN_BACKOFF)
 			continue;
 
